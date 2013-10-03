@@ -1,6 +1,10 @@
 module.exports = function(grunt) {
   'use strict';
   var path = require('path');
+  var spawn = require('child_process').spawn;
+  // external library
+  var which = require('which').sync;
+
   var _ = grunt.util._;
   grunt.registerMultiTask('jsx', 'Compile JSX file to JavaScript', function() {
     var done = this.async();
@@ -74,6 +78,45 @@ module.exports = function(grunt) {
     return output;
   };
 
+  // Spawn a child process, not capturing its stdout and stderr.
+  function simpleSpawn(cmd, args, done) {
+    // Build a result object and pass it (among other things) into the
+    // done function.
+    var callDone = function(code, error) {
+      // Remove trailing whitespace (newline)
+      // Create the result object.
+      var result = {
+        code: code,
+        error: error
+      };
+      // On error (and no fallback) pass an error object, otherwise pass null.
+      done(code === 0, result, code);
+    };
+    var cmdstring;
+    var pathSeparatorRe = /[\\\/]/g;
+    // On Windows, child_process.spawn will only file .exe files in the PATH,
+    // not other executable types (grunt issue #155).
+    try {
+      if (!pathSeparatorRe.test(cmd)) {
+        // Only use which if cmd has no path component.
+        cmdstring = which(cmd);
+      } else {
+        cmdstring = cmd.replace(pathSeparatorRe, path.sep);
+      }
+    } catch (err) {
+      console.log(err);
+      callDone(127, String(err));
+      return;
+    }
+    var opts = {
+        stdio: [null, 1, 2] // inherit default stdio.
+    };
+    var child = spawn(cmdstring, args, opts);
+    child.on('close', function(code) {
+      callDone(code, '');
+    });
+  }
+
   var compileJsx = function (file, opts, callback) {
     if (!file) {
       grunt.log.warn('Source file is undefiend.');
@@ -119,11 +162,6 @@ module.exports = function(grunt) {
     args.push(file);
     grunt.log.write('jsx ');
     grunt.log.writeln(args.join(" "));
-    var jsx = grunt.util.spawn({
-      cmd: 'jsx',
-      args: args
-    }, callback);
-    jsx.stdout.pipe(process.stdout);
-    jsx.stderr.pipe(process.stderr);
+    simpleSpawn('jsx', args, callback);
   };
 };
